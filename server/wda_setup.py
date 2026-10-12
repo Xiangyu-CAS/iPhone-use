@@ -243,7 +243,8 @@ class SetupManager:
         try:
             opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
             request = urllib.request.Request(self.base_url + "/status", headers={"Accept": "application/json"})
-            with opener.open(request, timeout=1.5) as response:
+            # Allow USB (5s), CoreDevice discovery (3.5s), TCP (2s), and the status reply.
+            with opener.open(request, timeout=12) as response:
                 document = json.loads(response.read(1024 * 1024))
             value = document.get("value", {})
             return {"reachable": True, "ready": value.get("ready") is True, "wda": value,
