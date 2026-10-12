@@ -20,6 +20,7 @@ type Preview = {
   capture_age_ms?: number | null;
   frame: Frame | null;
   frame_available?: boolean;
+  service_ready?: boolean;
   viewport: Size | null;
   busy: boolean;
   paused: boolean;
@@ -49,7 +50,7 @@ const tools: Record<ToolName, HTMLButtonElement> = {
   screenshot: document.getElementById('tool-screenshot') as HTMLButtonElement,
 };
 const app = new App(
-  { name: 'iPhone Use Screen', version: '0.3.6' },
+  { name: 'iPhone Use Screen', version: '0.3.10' },
   { availableDisplayModes: ['fullscreen'] },
   { autoResize: false },
 );
@@ -66,6 +67,7 @@ let viewport: Size | undefined;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let failures = 0;
 let previewBlocked = false;
+let serviceUnavailable = false;
 const cursorEffects = new Set<CursorEffect>();
 let requestedFullscreen = false;
 let connecting: Promise<void> | undefined;
@@ -302,6 +304,7 @@ function showGesture(gesture: Gesture) {
 function consume(value: unknown) {
   if (disposed || !value || typeof value !== 'object') return;
   const preview = value as Partial<Preview>;
+  if (typeof preview.service_ready === 'boolean') serviceUnavailable = !preview.service_ready;
   if (typeof preview.stream_id === 'string' && preview.stream_id !== streamId) {
     streamId = preview.stream_id;
     // Sequence numbers restart with the server, but keep the last pixels until
@@ -328,9 +331,11 @@ function consume(value: unknown) {
     return;
   }
   if (preview.frame_available === false) {
-    if (root.dataset.platform === 'android') { clearFrame(); showEmpty('offline'); }
+    const state = image.src || serviceUnavailable ? 'offline' : 'connecting';
+    if (root.dataset.platform === 'android') { clearFrame(); showEmpty(state); }
     retainFrame();
-    setLive('offline');
+    // The stream has no frame while USB capture starts; that is still connecting.
+    setLive(state);
   } else if (preview.frame_available === true || preview.frame) {
     setLive('live');
   }
@@ -341,6 +346,7 @@ function consume(value: unknown) {
       && typeof frame.data === 'string' && frame.data.length > 0
       && ['image/jpeg', 'image/png', 'image/webp'].includes(frame.mimeType)) {
     frameSeq = frame.seq;
+    serviceUnavailable = false;
     root.dataset.frameSeq = String(frame.seq);
     if (!dimensions || dimensions.width !== frame.width || dimensions.height !== frame.height) {
       dimensions = { width: frame.width, height: frame.height };
@@ -401,7 +407,7 @@ async function poll() {
     failures += 1;
     nextDelay = Math.min(2000, 500 * failures);
     retainFrame();
-    if (failures > 1 && root.dataset.live !== 'paused') {
+    if (failures > 1 && root.dataset.live !== 'paused' && (image.src || root.dataset.platform === 'android')) {
       setLive('offline');
       if (root.dataset.platform === 'android') {
         // Widget timeouts do not guarantee cancellation of the host RPC.
@@ -570,8 +576,8 @@ root.dataset.pageVisible = String(visible());
 device.hidden = screen.hidden = false;
 image.hidden = true;
 emptyState.hidden = false;
-showEmpty('connecting');
+setLive('connecting');
 fitFrame();
 syncTools();
-try { await connect(); } catch { retainFrame(); setLive('offline'); }
+try { await connect(); } catch { retainFrame(); }
 schedule(ready ? 0 : 1000);
