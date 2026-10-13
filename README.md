@@ -91,6 +91,8 @@ sh scripts/install.sh
 
 切换期间画面可能短暂中断；已经发出的点击、拖动不会自动重试。请等待画面恢复后继续操作。手机锁屏、网络隔离或 Xcode 隧道断开时需先恢复连接；Wi-Fi 不会消除 WDA/XCTest 本身的操作延迟。
 
+已知限制：CoreDevice 显示已连接不代表无线 XCTest 已就绪。[#19](https://github.com/zhongerxin/iPhone-use/issues/19) 报告 iPhone 14 Pro / iOS 27.0.1 在无线启动时出现控制通道拒绝、Runner 退出 74，官方 XCTest 模板也可复现，目前根因未确定。12 秒状态探测修复不解决此启动故障；请按[无线 XCTest 启动排查](skills/iphone-use-setup/references/troubleshooting.md#无线-xctest-启动失败)保留证据，READY 通过后再操作。
+
 ## 可以做什么
 
 | 功能 | 示例 |

@@ -88,6 +88,8 @@ Use USB for initial installation and pairing. Once paired, keep the iPhone and M
 
 The preview may briefly interrupt during a switch. Commands already sent are never replayed; wait for the live picture before continuing. Unlock the phone or restore the network/Xcode tunnel when disconnected. Wi-Fi does not remove WDA/XCTest gesture latency.
 
+Known limitation: a connected CoreDevice tunnel does not establish XCTest readiness. [#19](https://github.com/zhongerxin/iPhone-use/issues/19) reports wireless control-channel refusal and Runner exit 74 on iPhone 14 Pro / iOS 27.0.1, also reproduced with a stock XCTest template. The root cause remains undetermined; the 12-second status-probe fix does not resolve this startup failure. Preserve evidence using the [wireless XCTest troubleshooting steps (Chinese)](skills/iphone-use-setup/references/troubleshooting.md#无线-xctest-启动失败) and require READY before phone actions.
+
 ## Features
 
 | Feature | Behavior |
