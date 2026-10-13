@@ -59,6 +59,7 @@ let ready = false;
 let disposed = false;
 let inFlight = false;
 let frameSeq = 0;
+let streamHadFrame = false;
 let frameGeneration = 0;
 let streamId: string | undefined;
 let eventId = 0;
@@ -307,6 +308,7 @@ function consume(value: unknown) {
   if (typeof preview.service_ready === 'boolean') serviceUnavailable = !preview.service_ready;
   if (typeof preview.stream_id === 'string' && preview.stream_id !== streamId) {
     streamId = preview.stream_id;
+    streamHadFrame = false;
     // Sequence numbers restart with the server, but keep the last pixels until
     // its replacement is ready. Authentication pause remains an explicit erase.
     frameSeq = 0;
@@ -331,7 +333,8 @@ function consume(value: unknown) {
     return;
   }
   if (preview.frame_available === false) {
-    const state = image.src || serviceUnavailable ? 'offline' : 'connecting';
+    const hadAndroidFrame = root.dataset.platform === 'android' && streamHadFrame;
+    const state = image.src || hadAndroidFrame || serviceUnavailable ? 'offline' : 'connecting';
     if (root.dataset.platform === 'android') { clearFrame(); showEmpty(state); }
     retainFrame();
     // The stream has no frame while USB capture starts; that is still connecting.
@@ -346,6 +349,7 @@ function consume(value: unknown) {
       && typeof frame.data === 'string' && frame.data.length > 0
       && ['image/jpeg', 'image/png', 'image/webp'].includes(frame.mimeType)) {
     frameSeq = frame.seq;
+    streamHadFrame = true;
     serviceUnavailable = false;
     root.dataset.frameSeq = String(frame.seq);
     if (!dimensions || dimensions.width !== frame.width || dimensions.height !== frame.height) {

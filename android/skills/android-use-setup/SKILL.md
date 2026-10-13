@@ -18,7 +18,7 @@ description: 配置 Android Use 的 ADB、Python 执行环境和 UI Automator �
 安装使用独立 ~/.local/share/android-use/venv，不修改 iPhone 环境。可用 ANDROID_USE_HOME 与 ANDROID_USE_ADB 覆盖路径；MCP 启动脚本同样读取 ANDROID_USE_HOME。
 start 通过 uiautomator2 部署并启动固定版本随附的 u2.jar，不需要 Xcode、Android Studio、root 或手机端签名账号。
 工具动作走单次 JSON-RPC，不走 uiautomator2 自动重试包装。
-stop 停本地预览、移除本进程 ADB forward，并要求本安装启动的后台 worker 退出；不结束外部启动的共享服务、不卸载软件。
+stop 停本地预览、移除本进程 ADB forward，并要求本安装启动的后台 worker 退出；返回 stopped=false / stopping 时按 job_id 轮询 status，直到 stopped。立即 start 会等待旧 worker 清理后再启动，不复用正在退出的服务。不结束外部启动的共享服务、不卸载软件。
 
 ## 无线
 

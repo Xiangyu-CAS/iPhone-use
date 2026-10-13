@@ -153,7 +153,7 @@ class Runtime:
             job=read(job_path)
             if job_id and job.get('id')!=job_id: raise AndroidError('unknown_job','Setup job ID not found.')
             until=time.monotonic()+wait_seconds
-            while job.get('state')=='running' and time.monotonic()<until:
+            while job.get('state') in ('running','stopping') and time.monotonic()<until:
                 time.sleep(.25); job=read(job_path)
             if job.get('state')=='running' and time.time()-job.get('started',0)>90:
                 job.update(state='failed',error='Startup worker exceeded 90 seconds. Inspect connection then start again.');save(job_path,job)
@@ -176,8 +176,9 @@ class Runtime:
             self.screen.close(); self.client.close()
             job=read(job_path)
             if job.get('state')=='running':raise AndroidError('setup_busy','Wait for startup before stopping its worker.')
-            if job:
-                job['stop_requested']=True;save(job_path,job)
+            if job and job.get('state') not in ('stopped','failed'):
+                job.update(stop_requested=True,state='stopping');save(job_path,job)
+                return {'stopped':False,'job':job,'next_step':'Poll setup status with job_id until stopped. A new start waits for this worker to finish cleanup.'}
             return {'stopped':True,'scope':'Local preview/forward and this installation\'s startup worker; an externally started UI Automator is preserved.'}
         if not self.client.serial:
             devices=[d for d in self.client.devices() if d['state']=='device']
@@ -185,11 +186,13 @@ class Runtime:
             self.client.serial=devices[0]['serial']; save(self.state_dir/'config.json',{'serial':self.client.serial})
         job=read(job_path)
         if job.get('state')=='running' and time.time()-job.get('started',0)<90: return {'job':job,'reused':True}
-        try:
-            # USB reconnect invalidates the old forward, not necessarily the phone service.
-            # Probe a fresh forward before replacing its owning worker.
-            self.client.close(); self.client.attach(); self.client.rpc('deviceInfo'); return {'service':{'ready':True},'reused':True}
-        except AndroidError: self.client.close()
+        stopping = job.get('stop_requested') and job.get('state') != 'stopped'
+        if not stopping:
+            try:
+                # Rebind USB before replacing a healthy worker, but never reuse
+                # a service whose owner has already committed to stopping it.
+                self.client.close(); self.client.attach(); self.client.rpc('deviceInfo'); return {'service':{'ready':True},'reused':True}
+            except AndroidError: self.client.close()
         job={'id':uuid.uuid4().hex,'state':'running','started':time.time()};save(job_path,job)
         log=(self.state_dir/'setup.log').open('ab');os.chmod(log.name,0o600)
         try: subprocess.Popen([sys.executable,str(Path(__file__).resolve()),'--state-dir',str(self.state_dir),'--setup-worker',job['id']],stdin=subprocess.DEVNULL,stdout=log,stderr=log,start_new_session=True)

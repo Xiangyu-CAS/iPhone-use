@@ -36,6 +36,26 @@ def matches(node, selector):
                else node.get(key) == value) for key,value in selector.items())
 
 
+def select_nodes(nodes, selector):
+    """Apply positional selection to the base matches before existence checks."""
+    found = [dict(node, index=i) for i, node in enumerate(n for n in nodes if matches(n, selector))]
+    if 'index' in selector:
+        index = selector['index']
+        return found[index:index + 1]
+    return found
+
+
+def unique_anchors(nodes):
+    anchors = collections.defaultdict(list)
+    for node in nodes:
+        text = node.get('text', '')
+        if not text or text.isnumeric() or node.get('password'):
+            continue
+        key = tuple(node.get(field, '') for field in ('text', 'resource_id', 'class_name', 'package', 'content_desc'))
+        anchors[key].append(node['rect'])
+    return {key: rects[0] for key, rects in anchors.items() if len(rects) == 1}
+
+
 class AndroidController:
     def __init__(self, client, state_dir, screen):
         self.client, self.state_dir, self.screen = client, Path(state_dir), screen
@@ -74,18 +94,15 @@ class AndroidController:
         return result
 
     def find(self, selector, limit=30):
-        found = [n for n in self.tree() if matches(n,selector)]
-        return {'matches':len(found),'nodes':[dict(n,index=i) for i,n in enumerate(found[:limit])],
+        found = select_nodes(self.tree(), selector)
+        return {'matches':len(found),'nodes':found[:limit],
                 'truncated':len(found)>limit}
 
     def resolve(self, selector):
         found = self.find(selector,30)
         nodes = found['nodes']
         if not nodes: raise AndroidError('target_not_found','Target is absent; inspect a screenshot before another action.')
-        if 'index' in selector:
-            if selector['index'] >= len(nodes): raise AndroidError('target_not_found','Selector index is absent.')
-            node = nodes[selector['index']]
-        elif found['matches'] != 1:
+        if found['matches'] != 1:
             raise AndroidError('ambiguous_target','Several controls match. Choose from the observed candidates.',details={'candidates':nodes})
         else: node = nodes[0]
         c = self.context(); x,y,w,h = node['rect']
@@ -134,9 +151,9 @@ class AndroidController:
         self.client.rpc('swipe',coords+[70],mutation=True)
         if verify:
             time.sleep(.5); after=self.tree(); axis=1 if direction in ('up','down') else 0; sign=-1 if direction in ('up','left') else 1
-            moved=any(a.get('text') and not a['text'].isnumeric() and a.get('text')==b.get('text')
-                      and a.get('resource_id')==b.get('resource_id') and (b['rect'][axis]-a['rect'][axis])*sign>12
-                      for a in before for b in after)
+            previous, current = unique_anchors(before), unique_anchors(after)
+            moved = any((current[key][axis] - previous[key][axis]) * sign > 12
+                        for key in previous.keys() & current.keys())
             if not moved: raise AndroidError('no_scroll_progress','Gesture sent; no stable anchor movement proven. Inspect screenshot; this does not prove end of list.',details={'action_executed':True})
         return self.finish(expect,observe,verified=verify)
 
@@ -216,14 +233,14 @@ class AndroidController:
         rows={}; pages=[]; seen=set(); end=False; reason='page_budget'
         for i in range(max_pages):
             if self.deadline and time.monotonic()>self.deadline: reason='time_budget'; break
-            nodes=self.tree(); current=[n for n in nodes if matches(n,row_selector)]
+            nodes=self.tree(); current=select_nodes(nodes,row_selector)
             fingerprint=json.dumps(current,sort_keys=True,ensure_ascii=False)
             pages.append({'page':i+1,'rows_seen':len(current)})
             for n in current:
-                key=json.dumps({k:v for k,v in n.items() if k!='rect'},sort_keys=True,ensure_ascii=False); rows.setdefault(key,n)
+                key=json.dumps({k:v for k,v in n.items() if k not in ('rect','index')},sort_keys=True,ensure_ascii=False); rows.setdefault(key,n)
                 if len(rows)>=500:break
             if len(rows)>=500:reason='row_budget';break
-            if end_selector and any(matches(n,end_selector) for n in nodes): end=True; reason='end_marker'; break
+            if end_selector and select_nodes(nodes,end_selector): end=True; reason='end_marker'; break
             if not current: reason='no_rows'; break
             if fingerprint in seen: reason='repeated_page'; break
             seen.add(fingerprint)

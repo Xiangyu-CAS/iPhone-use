@@ -20,7 +20,7 @@ Tested on macOS with a Samsung SM-G9500, Android 9 / API 28, USB, native display
 
 ## Automated checks
 
-PR preparation passed 434 Python tests (including 31 Android tests), 37 widget tests, TypeScript/build checks and both package validators. Android package tests start its isolated stdio runtime without iPhone service modules and read its widget resource. All six extracted protocol helpers retain the original function ASTs. Device-switch cleanup and service-owner handoff have regression coverage.
+PR preparation passed 455 Python tests (including 43 Android tests), 40 widget tests, TypeScript/build checks and both package validators. Android package tests start its isolated stdio runtime without iPhone service modules and read its widget resource. All six extracted protocol helpers retain the original function ASTs. Device-switch cleanup and service-owner handoff have regression coverage. PR #18 review regressions cover indexed postconditions/list selectors, unique scroll anchors and stop/start handoff. The 12 new Python regression cases expose failures against the pre-fix runtime and pass after the fixes. Upstream 0.3.10 is integrated; widget coverage includes Android startup, stale capture and replacement-stream loading.
 
 ## Limits
 

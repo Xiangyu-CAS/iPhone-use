@@ -751,3 +751,21 @@ test('Android stops retrying a stalled host even after focus and tool results, a
   assert.equal(h.elements.app.dataset.previewBlocked, 'false');
   assert.equal(h.calls.at(-1).name, 'pua_screen_frame');
 });
+
+test('Android startup loads, stale capture clears pixels, and a new stream loads again', async () => {
+  const h = await harness({ platform: 'android' });
+  h.app.ontoolresult({ structuredContent: preview({ stream_id: 'first', frame_available: false }) });
+  assert.equal(h.elements.app.dataset.live, 'connecting');
+  assert.equal(h.elements['empty-state'].dataset.state, 'connecting');
+  h.app.ontoolresult({ structuredContent: preview({ frame: frame(1), frame_available: true }) });
+  h.elements.image.onload();
+  assert.equal(h.elements.app.dataset.live, 'live');
+  for (let i = 0; i < 2; i++) {
+    h.app.ontoolresult({ structuredContent: preview({ frame_available: false }) });
+    assert.equal(h.elements.image.hidden, true);
+    assert.equal(h.elements.app.dataset.live, 'offline');
+    assert.equal(h.elements['empty-state'].dataset.state, 'offline');
+  }
+  h.app.ontoolresult({ structuredContent: preview({ stream_id: 'replacement', frame_available: false }) });
+  assert.equal(h.elements.app.dataset.live, 'connecting');
+});
