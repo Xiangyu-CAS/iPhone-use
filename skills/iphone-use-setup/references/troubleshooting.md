@@ -39,7 +39,7 @@ PUA 路径不依赖 Mac 的 iPhone 镜像窗口、显示器原点或镜像锁屏
 
 ## 无线 XCTest 启动失败
 
-`paired / connected / localNetwork` 只证明 CoreDevice 连接状态，不证明 Runner 已取得 XCTest 配置或 WDA 已可控制。[#19](https://github.com/zhongerxin/iPhone-use/issues/19) 中的 `XCTestDriverInterface:XCTestManager_IDEInterface` 通道拒绝、`Failed to retrieve test configuration` 和 Runner 退出 74 发生在测试启动阶段。不要把 Runner 退出码与 xcodebuild 退出码混为一谈，也不要仅凭退出码归因于 VPN、签名或 iOS 版本。
+`paired / connected / localNetwork` 只证明 CoreDevice 连接状态，不证明 Runner 已取得 XCTest 配置或 PUA 已可控制。[#19](https://github.com/zhongerxin/iPhone-use/issues/19) 中的 `XCTestDriverInterface:XCTestManager_IDEInterface` 通道拒绝、`Failed to retrieve test configuration` 和 Runner 退出 74 发生在测试启动阶段。不要把 Runner 退出码与 xcodebuild 退出码混为一谈，也不要仅凭退出码归因于 VPN、签名或 iOS 版本。
 
 - 先查看同一 setup job 的状态及日志，保留首次错误前后的连续上下文。默认 20 秒 start 等待结束只返回当前状态，不会据此终止后台 XCTest；12 秒 HTTP 状态探测预算也不是 XCTest 启动期限。不要反复延长 HTTP 超时或自动重试启动来掩盖该故障。
 - 若已使用独立诊断补丁 #26，沿用其同一次失败的 `.xcresult`、`failure.json` 和 Xcode 会话日志，不要求重复安装。该补丁不属于本 PR 的依赖，也不是 code 74 的根因修复。优先核对 testmanagerd 控制会话、serialized transport handoff、proxy channel request、Runner ready、测试配置及首个拒绝事件的顺序。
