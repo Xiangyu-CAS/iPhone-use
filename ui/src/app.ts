@@ -31,6 +31,7 @@ type Preview = {
   device?: { model?: string } | null;
 };
 type LiveState = 'connecting' | 'live' | 'paused' | 'offline';
+type DeviceAppearance = 'plain' | 'rounded' | 'dynamic-island';
 type EmptyState = 'connecting' | 'offline' | 'locked' | 'authentication' | 'paused' | 'unavailable';
 type ToolName = 'refresh' | 'home' | 'screenshot';
 type CursorEffect = { node: HTMLElement; animation?: Animation; timer?: ReturnType<typeof setTimeout> };
@@ -52,7 +53,7 @@ const tools: Record<ToolName, HTMLButtonElement> = {
   screenshot: document.getElementById('tool-screenshot') as HTMLButtonElement,
 };
 const app = new App(
-  { name: 'iPhone Use Screen', version: '0.3.11' },
+  { name: 'iPhone Use Screen', version: '0.3.15' },
   { availableDisplayModes: ['fullscreen'] },
   { autoResize: false },
 );
@@ -67,6 +68,7 @@ let streamId: string | undefined;
 let eventId = 0;
 let dimensions: Size | undefined;
 let viewport: Size | undefined;
+let deviceAppearance: DeviceAppearance = 'plain';
 let timer: ReturnType<typeof setTimeout> | undefined;
 let failures = 0;
 let previewBlocked = false;
@@ -84,8 +86,8 @@ const REQUEST_TIMEOUT = 3000;
 const ACTION_TIMEOUT = 12000;
 const LIVE_TEXT: Record<LiveState, string> = { connecting: '连接中', live: 'Live', paused: '已暂停', offline: '未连接' };
 const EMPTY_TEXT: Record<EmptyState, string> = {
-  connecting: '正在连接', offline: '未连接', locked: '等待解锁',
-  authentication: '请完成认证', paused: '预览已暂停', unavailable: '画面暂不可用',
+  connecting: '正在连接', offline: '未连接', locked: '请在手机上接管操作',
+  authentication: '请在手机上接管操作', paused: '请在手机上接管操作', unavailable: '画面暂不可用',
 };
 const DONE: Record<ToolName, string> = { refresh: '已刷新连接', home: '已回到主屏幕', screenshot: '截图已复制到剪贴板' };
 const FAILED: Record<string, string> = {
@@ -96,6 +98,32 @@ const FAILED: Record<string, string> = {
   phone_locked: '请先解锁手机',
   stale_viewport: '屏幕方向已变化，请等待新画面',
 };
+
+// Use confirmed model names from USB discovery, never a generation threshold:
+// standard iPhone 14, the e models and every SE have different screen designs.
+// https://support.apple.com/en-us/108044
+const ISLAND_MODELS = new Set([
+  'iphone 14 pro', 'iphone 14 pro max',
+  'iphone 15', 'iphone 15 plus', 'iphone 15 pro', 'iphone 15 pro max',
+  'iphone 16', 'iphone 16 plus', 'iphone 16 pro', 'iphone 16 pro max',
+  'iphone 17', 'iphone 17 pro', 'iphone 17 pro max', 'iphone air',
+  'iphone 18 pro', 'iphone 18 pro max',
+]);
+const ROUNDED_MODELS = new Set([
+  'iphone x', 'iphone xr', 'iphone xs', 'iphone xs max',
+  'iphone 11', 'iphone 11 pro', 'iphone 11 pro max',
+  'iphone 12', 'iphone 12 mini', 'iphone 12 pro', 'iphone 12 pro max',
+  'iphone 13', 'iphone 13 mini', 'iphone 13 pro', 'iphone 13 pro max',
+  'iphone 14', 'iphone 14 plus', 'iphone 16e', 'iphone 17e',
+]);
+
+function appearanceForModel(value: string): DeviceAppearance {
+  const name = value.trim().replace(/\s+/g, ' ').toLowerCase();
+  if (ISLAND_MODELS.has(name)) return 'dynamic-island';
+  if (ROUNDED_MODELS.has(name)) return 'rounded';
+  // Older phones, SE, other devices and unknown models get an unclipped screen.
+  return 'plain';
+}
 
 const validSize = (value: unknown): value is Size => {
   const size = value as Size | undefined;
@@ -121,6 +149,7 @@ function showEmpty(state: EmptyState) {
 
 function setLive(state: LiveState) {
   if (!image.src) showEmpty(state === 'paused' ? 'paused' : state === 'offline' ? 'offline' : 'connecting');
+  if (state !== 'paused' && image.src) emptyState.hidden = true;
   if (root.dataset.live === state) return;
   root.dataset.live = state;
   liveText.textContent = LIVE_TEXT[state];
@@ -223,17 +252,17 @@ function fitFrame() {
   if (width <= 0 || height <= 0) return;
   const shortSide = Math.min(size.width, size.height);
   const bezel = shortSide * .024;
-  const outerWidth = size.width + 2 * bezel;
-  const outerHeight = size.height + 2 * bezel;
+  const inset = deviceAppearance === 'plain' ? 0 : bezel;
+  const outerWidth = size.width + 2 * inset;
+  const outerHeight = size.height + 2 * inset;
   const scale = .96 * Math.min(width / outerWidth, height / outerHeight);
   device.style.width = `${outerWidth * scale}px`;
   device.style.height = `${outerHeight * scale}px`;
-  device.style.setProperty('--bezel', `${bezel * scale}px`);
-  // Android has no universal chassis, corner mask or camera cutout. Its frame
-  // supplies the exact aspect ratio; preserve every source pixel at the edges.
-  const radius = android ? 0 : shortSide * .12 * scale;
+  device.style.setProperty('--bezel', `${inset * scale}px`);
+  // Unknown models and Android keep every source pixel, without an iPhone mask.
+  const radius = deviceAppearance === 'plain' ? 0 : shortSide * .12 * scale;
   device.style.setProperty('--screen-radius', `${radius}px`);
-  const band = Math.min(bezel * scale * 3.8, android ? bezel * scale * 2 : radius);
+  const band = bezel * scale * 3.8;
   for (const [phase, bridge] of [.12, .32, .62].entries()) {
     device.style.setProperty(phase === 0 ? '--glow-mask' : `--glow-mask-${phase}`,
       glowMask(size.width * scale, size.height * scale, radius, band, bridge));
@@ -309,24 +338,45 @@ function showGesture(gesture: Gesture) {
 function consume(value: unknown) {
   if (disposed || !value || typeof value !== 'object') return;
   const preview = value as Partial<Preview>;
+  let nextAppearance = deviceAppearance;
   if (typeof preview.service_ready === 'boolean') serviceUnavailable = !preview.service_ready;
   if (typeof preview.stream_id === 'string' && preview.stream_id !== streamId) {
     streamId = preview.stream_id;
     streamHadFrame = false;
+    // A replacement stream may belong to another phone; wait for its model.
+    nextAppearance = 'plain';
+    model.textContent = root.dataset.platform === 'android' ? 'Android' : 'iPhone';
     // Sequence numbers restart with the server, but keep the last pixels until
-    // its replacement is ready. Authentication pause remains an explicit erase.
+    // its replacement is ready.
     frameSeq = 0;
     eventId = 0;
     root.dataset.operating = 'false';
     retainFrame();
   }
-  if (typeof preview.device?.model === 'string' && preview.device.model) model.textContent = preview.device.model;
+  if (typeof preview.device?.model === 'string' && preview.device.model.trim()) {
+    model.textContent = preview.device.model;
+    nextAppearance = root.dataset.platform === 'android' ? 'plain' : appearanceForModel(preview.device.model);
+  }
+  if (nextAppearance !== deviceAppearance) {
+    deviceAppearance = nextAppearance;
+    device.dataset.appearance = deviceAppearance;
+    fitFrame();
+  }
   if (validSize(preview.viewport) && (viewport?.width !== preview.viewport.width || viewport?.height !== preview.viewport.height)) {
     viewport = preview.viewport;
     if (!dimensions) fitFrame();
   }
   if (preview.paused === true) {
-    clearFrame();
+    // Freeze the already displayed page underneath the handoff overlay. Invalidate
+    // older requests and input freshness; resume must fetch a frame again.
+    frameGeneration++;
+    cancelPointer();
+    retainFrame();
+    decodedAt = freshUntil = -Infinity;
+    frameSeq = 0;
+    root.dataset.frameSeq = '0';
+    root.dataset.operating = 'false';
+    emptyState.hidden = false;
     setLive('paused');
     liveText.textContent = preview.pause_reason === 'device_locked' ? '等待解锁' : LIVE_TEXT.paused;
     liveText.title = preview.pause_reason === 'device_locked'
@@ -336,9 +386,12 @@ function consume(value: unknown) {
       : preview.pause_reason === 'authentication' ? 'authentication' : 'paused');
     return;
   }
+  const resuming = preview.paused === false && root.dataset.live === 'paused';
+  if (resuming) setLive('connecting');
   if (preview.frame_available === false) {
     const hadAndroidFrame = root.dataset.platform === 'android' && streamHadFrame;
-    const state = image.src || hadAndroidFrame || serviceUnavailable ? 'offline' : 'connecting';
+    const state = resuming && !serviceUnavailable ? 'connecting'
+      : image.src || hadAndroidFrame || serviceUnavailable ? 'offline' : 'connecting';
     if (root.dataset.platform === 'android') { clearFrame(); showEmpty(state); }
     retainFrame();
     // The stream has no frame while USB capture starts; that is still connecting.
@@ -456,7 +509,7 @@ async function act(name: ToolName) {
     root.dataset.previewBlocked = 'false';
     failures = 0;
     frameGeneration++; // Ignore a poll from before this reconnect click.
-    if (!image.src) showEmpty('connecting');
+    if (!image.src && root.dataset.live !== 'paused') showEmpty('connecting');
   }
   acting = true;
   tools[name].dataset.busy = 'true';
@@ -733,6 +786,7 @@ async function initialize() {
 }
 
 root.dataset.pageVisible = String(visible());
+device.dataset.appearance = deviceAppearance;
 device.hidden = screen.hidden = false;
 image.hidden = true;
 emptyState.hidden = false;
